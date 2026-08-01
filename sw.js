@@ -1,4 +1,4 @@
-const CACHE = "aib-loan-v1";
+const CACHE = "aib-loan-v2";
 const ASSETS = ["./", "./index.html", "./app.js", "./styles.css", "./manifest.json", "./icon.svg"];
 
 self.addEventListener("install", (e) => {

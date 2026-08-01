@@ -3,7 +3,7 @@
  * Data persists in localStorage on your phone.
  */
 
-const STORAGE_KEY = "aib-loan-tracker-v1";
+const STORAGE_KEY = "aib-loan-tracker-v2"; // bumped – fixes balance calculation
 
 const DEFAULT_CONFIG = {
   loanAmount: 463500,
@@ -19,21 +19,10 @@ const DEFAULT_CONFIG = {
   product: "GreenA 3 Year LTV Fixed >80%",
 };
 
-// Confirmed AIB anchors (id -> payment record overrides)
-const CONFIRMED = {
-  "2026-07-09": {
-    openingBalance: 464888.28,
-    closingBalance: 463029.92,
-    emiPaid: 1858.36,
-    paid: true,
-    notes: "Confirmed: AIB balance 01-Jul-2026",
-    confirmed: true,
-  },
-  "2026-08-09": {
-    openingBalance: 463029.92,
-    closingBalance: 463029.92,
-    notes: "Current balance – EMI due",
-  },
+// Confirmed balances from AIB (hard anchors)
+const ANCHORS = {
+  "2026-07-09": { opening: 464888.28, closing: 463029.92, confirmed: true },
+  "2026-08-09": { opening: 463029.92 }, // current balance before Aug EMI
 };
 
 const DEFAULT_PAYMENTS = {
@@ -41,7 +30,7 @@ const DEFAULT_PAYMENTS = {
     emiPaid: 1858.36,
     extraPaid: 0,
     paid: true,
-    notes: "Confirmed after AIB statement",
+    notes: "Confirmed – AIB balance after EMI",
     paidAt: "2026-07-09",
   },
 };
@@ -58,7 +47,6 @@ function loadState() {
   return {
     config: { ...DEFAULT_CONFIG },
     payments: { ...DEFAULT_PAYMENTS },
-    schedule: null,
   };
 }
 
@@ -66,13 +54,21 @@ function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+
 function parseDate(s) {
   const [y, m, d] = s.split("-").map(Number);
   return new Date(y, m - 1, d);
 }
 
+/** Local date string YYYY-MM-DD (avoids UTC timezone bugs on iPhone) */
 function fmtDate(d) {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function fmtDisplay(d) {
@@ -89,60 +85,62 @@ function fmtEUR(n) {
 }
 
 function addMonths(d, n) {
-  const r = new Date(d);
-  r.setMonth(r.getMonth() + n);
+  const r = new Date(d.getFullYear(), d.getMonth() + n, d.getDate());
   return r;
 }
 
-function daysInMonth(y, m) {
-  return new Date(y, m + 1, 0).getDate();
-}
-
-function isQuarterPost(d) {
-  return [3, 6, 9, 12].includes(d.getMonth() + 1) && d.getDate() === 16;
+function isQuarterPost(y, m, day) {
+  return [3, 6, 9, 12].includes(m + 1) && day === 16;
 }
 
 function buildSchedule() {
   const cfg = state.config;
   const rate = cfg.annualRate / 100;
-  let balance = cfg.loanAmount;
-  let accrued = 0;
-
   const start = parseDate(cfg.loanStart);
   const expiry = parseDate(cfg.loanExpiry);
   const firstEmi = parseDate(cfg.firstEmi);
   const holidayEnd = addMonths(start, cfg.holidayMonths - 1);
-  holidayEnd.setDate(9);
 
+  let balance = cfg.loanAmount;
+  let accrued = 0;
   const entries = [];
-  let cursor = new Date(start.getFullYear(), start.getMonth(), 9);
-  if (cursor < start) cursor = new Date(start);
-
   let emiNum = 0;
 
+  let cursor = new Date(start.getFullYear(), start.getMonth(), 9);
   while (cursor <= expiry) {
     const id = fmtDate(cursor);
     const y = cursor.getFullYear();
     const m = cursor.getMonth();
-    const monthStart = new Date(y, m, 1);
-    const monthEnd = new Date(y, m + 1, 0);
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
 
-    let opening = balance;
-    let monthAccrued = 0;
-    let quarterPosted = 0;
-    let lump = 0;
-
-    const isHoliday = cursor <= holidayEnd && cursor < firstEmi;
+    const isHoliday = cursor < firstEmi;
     const emiDue = cursor >= firstEmi ? cfg.emi : 0;
     if (emiDue) emiNum++;
 
-    // Confirmed anchor – Jul 2026
-    if (CONFIRMED[id]) {
-      const c = CONFIRMED[id];
-      const pay = state.payments[id] || {};
-      opening = c.openingBalance ?? opening;
-      let closing = c.closingBalance ?? opening;
-      const emiPaid = pay.emiPaid ?? c.emiPaid ?? 0;
+    const pay = state.payments[id] || {};
+    const anchor = ANCHORS[id];
+
+    let opening = round2(balance);
+    let quarterPosted = 0;
+    let lump = 0;
+
+    // --- Hard anchor months (Jul/Aug confirmed) ---
+    if (anchor) {
+      opening = anchor.opening;
+      balance = opening;
+
+      let emiPaid = pay.emiPaid || 0;
+      let extraPaid = pay.extraPaid || 0;
+      let closing;
+
+      if (anchor.closing != null && (pay.paid || anchor.confirmed)) {
+        closing = anchor.closing;
+        emiPaid = emiPaid || cfg.emi;
+      } else if (emiPaid || pay.paid) {
+        closing = round2(opening - emiPaid - extraPaid);
+      } else {
+        closing = opening;
+      }
 
       entries.push({
         id,
@@ -151,58 +149,26 @@ function buildSchedule() {
         opening,
         emiDue,
         emiPaid: emiPaid || "",
-        extraPaid: pay.extraPaid || 0,
+        extraPaid,
         lumpSum: 0,
         quarterPosted: 0,
         closing,
         phase: isHoliday ? "holiday" : "emi",
         emiNum,
-        paid: pay.paid ?? c.paid ?? false,
-        notes: pay.notes || c.notes || "",
-        confirmed: c.confirmed || false,
+        paid: pay.paid || !!anchor.confirmed,
+        notes: pay.notes || (anchor.confirmed ? "Confirmed AIB balance" : "EMI due"),
+        confirmed: !!anchor.confirmed,
       });
+
       balance = closing;
       cursor = addMonths(cursor, 1);
       continue;
     }
 
-    // Aug 2026 special – current balance, EMI due
-    if (id === "2026-08-09") {
-      opening = CONFIRMED[id].openingBalance;
-      balance = opening;
-      const pay = state.payments[id] || {};
-      const emiPaid = pay.emiPaid || 0;
-      let closing = emiPaid ? opening - emiPaid + (pay.extraPaid || 0) : opening;
-
-      entries.push({
-        id,
-        date: new Date(cursor),
-        monthLabel: fmtMonth(cursor),
-        opening,
-        emiDue,
-        emiPaid: emiPaid || "",
-        extraPaid: pay.extraPaid || 0,
-        lumpSum: 0,
-        quarterPosted: 0,
-        closing,
-        phase: "emi",
-        emiNum,
-        paid: pay.paid || false,
-        notes: pay.notes || CONFIRMED[id].notes,
-        confirmed: false,
-      });
-      balance = closing;
-      cursor = addMonths(cursor, 1);
-      continue;
-    }
-
-    // Daily accrual for month
-    for (let day = 1; day <= monthEnd.getDate(); day++) {
-      const d = new Date(y, m, day);
-      const daily = (balance * rate) / 365;
-      accrued += daily;
-      monthAccrued += daily;
-      if (isQuarterPost(d)) {
+    // --- Normal month: daily accrual + quarterly post ---
+    for (let day = 1; day <= daysInMonth; day++) {
+      accrued += (balance * rate) / 365;
+      if (isQuarterPost(y, m, day)) {
         balance += accrued;
         quarterPosted += accrued;
         accrued = 0;
@@ -214,42 +180,30 @@ function buildSchedule() {
       balance -= lump;
     }
 
-    const pay = state.payments[id] || {};
     let emiPaid = pay.emiPaid || 0;
     let extraPaid = pay.extraPaid || 0;
 
-    // Project unpaid past EMIs (May, Jun) as paid for display
-    if (!emiPaid && emiDue && cursor < parseDate("2026-07-09") && cursor >= firstEmi) {
-      if (!state.payments[id]) {
-        emiPaid = cfg.emi;
-      }
-    }
-
-    if (emiPaid) {
+    if (pay.paid || emiPaid) {
       balance -= emiPaid;
-    }
-    if (extraPaid) {
       balance -= extraPaid;
-    }
-
-    // Project future EMIs
-    if (!emiPaid && emiDue && cursor > parseDate("2026-08-09")) {
-      balance -= cfg.emi;
+    } else if (emiDue && cursor > parseDate("2026-08-09")) {
+      // Project future EMIs
       emiPaid = cfg.emi;
+      balance -= cfg.emi;
     }
 
-    const closing = Math.round(balance * 100) / 100;
+    const closing = round2(balance);
 
     entries.push({
       id,
       date: new Date(cursor),
       monthLabel: fmtMonth(cursor),
-      opening: Math.round(opening * 100) / 100,
+      opening,
       emiDue,
-      emiPaid: pay.emiPaid || (emiPaid && !pay.paid ? "" : emiPaid) || "",
+      emiPaid: pay.paid ? emiPaid : emiPaid || "",
       extraPaid,
       lumpSum: lump,
-      quarterPosted: Math.round(quarterPosted * 100) / 100,
+      quarterPosted: round2(quarterPosted),
       closing,
       phase: isHoliday ? "holiday" : emiDue ? "emi" : "accrual",
       emiNum: emiDue ? emiNum : 0,
@@ -267,21 +221,17 @@ function buildSchedule() {
 }
 
 function getCurrentBalance(schedule) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  let balance = state.config.loanAmount;
-  for (const e of schedule) {
-    if (e.date <= today) balance = e.closing;
-    else break;
-  }
-  // Prefer confirmed Aug opening if we're in Aug 2026 before next EMI effect
   const aug = schedule.find((e) => e.id === "2026-08-09");
-  if (aug && today >= parseDate("2026-07-09") && today < parseDate("2026-09-09")) {
-    return aug.paid ? aug.closing : aug.opening;
-  }
   const jul = schedule.find((e) => e.id === "2026-07-09");
+
+  if (aug) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (aug.paid) return aug.closing;
+    if (today >= parseDate("2026-07-09")) return aug.opening; // 463,029.92
+  }
   if (jul && jul.paid) return jul.closing;
-  return balance;
+  return schedule.length ? schedule[0].closing : state.config.loanAmount;
 }
 
 function renderDashboard(schedule) {
@@ -293,7 +243,7 @@ function renderDashboard(schedule) {
   document.getElementById("dash-updated").textContent = `As of ${fmtDisplay(new Date())}`;
   document.getElementById("dash-emi").textContent = fmtEUR(cfg.emi);
   document.getElementById("dash-daily").textContent = fmtEUR(daily);
-  
+
   const paidEntries = schedule.filter((e) => e.paid && e.emiPaid);
   const totalPaid = paidEntries.reduce((s, e) => s + Number(e.emiPaid) + Number(e.extraPaid || 0), 0);
   document.getElementById("dash-paid-count").textContent = paidEntries.length;
@@ -301,9 +251,7 @@ function renderDashboard(schedule) {
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const next = schedule.find(
-    (e) => e.emiDue && !e.paid && e.date >= today
-  ) || schedule.find((e) => e.emiDue && !e.paid);
+  const next = schedule.find((e) => e.emiDue && !e.paid && e.date >= today);
 
   const nextEl = document.getElementById("next-emi-content");
   if (next) {
@@ -315,7 +263,8 @@ function renderDashboard(schedule) {
       </div>
       <p style="color:var(--muted);font-size:0.875rem">
         ${daysUntil > 0 ? `In ${daysUntil} day${daysUntil !== 1 ? "s" : ""}` : daysUntil === 0 ? "Due today!" : "Overdue"}
-        · Opening balance ${fmtEUR(next.opening)}
+        · Balance before EMI: ${fmtEUR(next.opening)}
+        · After EMI: ${fmtEUR(round2(next.opening - next.emiDue))}
       </p>
       <button type="button" class="btn primary" style="width:100%;margin-top:0.75rem" onclick="openPayment('${next.id}')">
         Record Payment
@@ -363,8 +312,7 @@ function renderSchedule(schedule) {
       else if (e.paid) cls += " paid";
       else if (e.emiDue && e.date <= today) cls += " due";
 
-      let badge = e.phase === "holiday" ? "Holiday" : e.paid ? "Paid" : e.emiDue ? "EMI" : "—";
-      if (e.confirmed) badge = "Confirmed";
+      let badge = e.confirmed ? "Confirmed" : e.paid ? "Paid" : e.emiDue ? "EMI" : "Holiday";
 
       return `
         <li class="${cls}" onclick="openPayment('${e.id}')">
@@ -421,7 +369,8 @@ window.openPayment = function (id) {
   editingEntryId = id;
   const pay = state.payments[id] || {};
   document.getElementById("modal-title").textContent = "Record Payment";
-  document.getElementById("modal-subtitle").textContent = `${fmtDisplay(entry.date)} · EMI ${fmtEUR(entry.emiDue)}`;
+  document.getElementById("modal-subtitle").textContent =
+    `${fmtDisplay(entry.date)} · EMI ${fmtEUR(entry.emiDue)} · Expected closing ${fmtEUR(round2(entry.opening - entry.emiDue))}`;
   const form = document.getElementById("payment-form");
   form.emiPaid.value = pay.emiPaid || entry.emiDue;
   form.extraPaid.value = pay.extraPaid || 0;
@@ -434,7 +383,6 @@ function closeModal() {
   editingEntryId = null;
 }
 
-// Event listeners
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => showView(tab.dataset.view));
 });
@@ -494,17 +442,16 @@ document.getElementById("settings-form").addEventListener("submit", (e) => {
 
 document.getElementById("btn-reset").addEventListener("click", () => {
   if (confirm("Reset all data to defaults? Your payment history will be lost.")) {
+    localStorage.removeItem(STORAGE_KEY);
     state = {
       config: { ...DEFAULT_CONFIG },
       payments: { ...DEFAULT_PAYMENTS },
-      schedule: null,
     };
     render();
     showView("dashboard");
   }
 });
 
-// Register service worker for offline
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./sw.js").catch(() => {});
 }
