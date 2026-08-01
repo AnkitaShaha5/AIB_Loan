@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="AIB Loan" />
+  <meta name="theme-color" content="#1F4E79" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>AIB Loan Tracker</title>
+</head>
+<body>
+  <div id="app">
+    <header class="header">
+      <div class="header-top">
+        <h1>AIB Loan</h1>
+        <button type="button" id="btn-settings" class="icon-btn" aria-label="Settings">⚙️</button>
+      </div>
+      <p class="subtitle">Mortgage EMI Tracker</p>
+    </header>
+
+    <main>
+      <!-- Dashboard -->
+      <section id="view-dashboard" class="view active">
+        <div class="balance-card">
+          <p class="label">Current Balance</p>
+          <p class="balance" id="dash-balance">—</p>
+          <p class="hint" id="dash-updated">Updated from your schedule</p>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat">
+            <span class="stat-label">Monthly EMI</span>
+            <span class="stat-value" id="dash-emi">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Daily Interest</span>
+            <span class="stat-value" id="dash-daily">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">EMIs Paid</span>
+            <span class="stat-value" id="dash-paid-count">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Total Paid</span>
+            <span class="stat-value" id="dash-total-paid">—</span>
+          </div>
+        </div>
+
+        <div class="card next-emi" id="next-emi-card">
+          <h2>Next EMI</h2>
+          <div id="next-emi-content"></div>
+        </div>
+
+        <div class="card">
+          <h2>Loan Summary</h2>
+          <dl class="summary-list" id="loan-summary"></dl>
+        </div>
+      </section>
+
+      <!-- Schedule -->
+      <section id="view-schedule" class="view">
+        <div class="filter-bar">
+          <button type="button" class="filter active" data-filter="all">All</button>
+          <button type="button" class="filter" data-filter="due">Due</button>
+          <button type="button" class="filter" data-filter="paid">Paid</button>
+          <button type="button" class="filter" data-filter="upcoming">Upcoming</button>
+        </div>
+        <ul class="schedule-list" id="schedule-list"></ul>
+      </section>
+
+      <!-- Settings -->
+      <section id="view-settings" class="view">
+        <div class="card">
+          <h2>Loan Parameters</h2>
+          <form id="settings-form" class="form">
+            <label>Original loan (EUR)<input type="number" step="0.01" name="loanAmount" required /></label>
+            <label>Interest rate (% p.a.)<input type="number" step="0.01" name="annualRate" required /></label>
+            <label>Monthly EMI (EUR)<input type="number" step="0.01" name="emi" required /></label>
+            <label>Loan start date<input type="date" name="loanStart" required /></label>
+            <label>First EMI date<input type="date" name="firstEmi" required /></label>
+            <label>Payment holiday (months)<input type="number" name="holidayMonths" min="0" required /></label>
+            <label>Lump sum Jan-2026 (EUR)<input type="number" step="0.01" name="lumpSum" /></label>
+            <button type="submit" class="btn primary">Save &amp; Recalculate</button>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Install on iPhone</h2>
+          <ol class="install-steps">
+            <li>Open this page in <strong>Safari</strong></li>
+            <li>Tap the <strong>Share</strong> button (square with arrow)</li>
+            <li>Tap <strong>Add to Home Screen</strong></li>
+            <li>Tap <strong>Add</strong> — works like an app!</li>
+          </ol>
+        </div>
+        <div class="card">
+          <button type="button" id="btn-reset" class="btn danger">Reset to Default Data</button>
+        </div>
+      </section>
+    </main>
+
+    <nav class="tab-bar">
+      <button type="button" class="tab active" data-view="dashboard">
+        <span class="tab-icon">📊</span>
+        <span>Home</span>
+      </button>
+      <button type="button" class="tab" data-view="schedule">
+        <span class="tab-icon">📅</span>
+        <span>EMIs</span>
+      </button>
+      <button type="button" class="tab" data-view="settings">
+        <span class="tab-icon">⚙️</span>
+        <span>Settings</span>
+      </button>
+    </nav>
+
+    <!-- Payment modal -->
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <h2 id="modal-title">Record Payment</h2>
+        <p id="modal-subtitle"></p>
+        <form id="payment-form" class="form">
+          <label>EMI Paid (EUR)<input type="number" step="0.01" name="emiPaid" required /></label>
+          <label>Extra Payment (EUR)<input type="number" step="0.01" name="extraPaid" value="0" /></label>
+          <label>Notes<input type="text" name="notes" placeholder="Optional" /></label>
+          <div class="modal-actions">
+            <button type="button" class="btn secondary" id="modal-cancel">Cancel</button>
+            <button type="submit" class="btn primary">Save</button>
+          </div>
+        </form>
+        <button type="button" class="btn link" id="modal-unpay">Mark as unpaid</button>
+      </div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
