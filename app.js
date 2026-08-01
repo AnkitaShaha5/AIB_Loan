@@ -3,7 +3,8 @@
  * Data persists in localStorage on your phone.
  */
 
-const STORAGE_KEY = "aib-loan-tracker-v2"; // bumped – fixes balance calculation
+const STORAGE_KEY = "aib-loan-tracker-v3";
+const APP_VERSION = "3";
 
 const DEFAULT_CONFIG = {
   loanAmount: 463500,
@@ -43,6 +44,9 @@ function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
+    // Drop old cached data from previous versions
+    localStorage.removeItem("aib-loan-tracker-v1");
+    localStorage.removeItem("aib-loan-tracker-v2");
   } catch (_) {}
   return {
     config: { ...DEFAULT_CONFIG },
@@ -443,6 +447,8 @@ document.getElementById("settings-form").addEventListener("submit", (e) => {
 document.getElementById("btn-reset").addEventListener("click", () => {
   if (confirm("Reset all data to defaults? Your payment history will be lost.")) {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem("aib-loan-tracker-v1");
+    localStorage.removeItem("aib-loan-tracker-v2");
     state = {
       config: { ...DEFAULT_CONFIG },
       payments: { ...DEFAULT_PAYMENTS },
@@ -450,6 +456,21 @@ document.getElementById("btn-reset").addEventListener("click", () => {
     render();
     showView("dashboard");
   }
+});
+
+document.getElementById("btn-force-refresh").addEventListener("click", async () => {
+  localStorage.removeItem("aib-loan-tracker-v1");
+  localStorage.removeItem("aib-loan-tracker-v2");
+  localStorage.removeItem(STORAGE_KEY);
+  if ("caches" in window) {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+  }
+  if ("serviceWorker" in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map((r) => r.unregister()));
+  }
+  location.reload();
 });
 
 if ("serviceWorker" in navigator) {

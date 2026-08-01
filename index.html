@@ -9,7 +9,7 @@
   <meta name="theme-color" content="#1F4E79" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icon.svg" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=3" />
   <title>AIB Loan Tracker</title>
 </head>
 <body>
@@ -97,6 +97,12 @@
           </ol>
         </div>
         <div class="card">
+          <button type="button" id="btn-force-refresh" class="btn primary">Force Refresh App</button>
+          <p style="color:var(--muted);font-size:0.8rem;margin-top:0.5rem">
+            Tap if balances look wrong — clears old cache and reloads latest version.
+          </p>
+        </div>
+        <div class="card">
           <button type="button" id="btn-reset" class="btn danger">Reset to Default Data</button>
         </div>
       </section>
@@ -136,6 +142,6 @@
       </div>
     </div>
   </div>
-  <script src="app.js"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
